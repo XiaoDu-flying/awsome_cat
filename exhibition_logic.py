@@ -11,7 +11,7 @@ from typing import Any, Optional, Union
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from llm_api import chat_json, chat_text
+from llm_api import chat_json, chat_text, get_last_llm_diagnostic, get_llm_status
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -285,6 +285,8 @@ def generate_contract(
     image_bytes: bytes,
     source_filename: str,
 ) -> dict[str, Any]:
+    llm_available, llm_status_message = get_llm_status()
+    llm_runtime_message = llm_status_message
     base_title = f"纳猫契·{cat_name or '灵猫'}"
     default_body = (
         f"今有{owner_name or '纳猫人'}，以诚心迎{cat_name or '灵猫'}入宅。"
@@ -310,6 +312,9 @@ def generate_contract(
         if llm_body and llm_body.strip():
             body = llm_body.strip()
             ai_generated = True
+            llm_runtime_message = "AI 文案生成成功。"
+        else:
+            llm_runtime_message = get_last_llm_diagnostic() or "已检测到 LLM 配置，但本次正文生成失败，已回退模板。"
 
     output_filename = f"contract_{uuid.uuid4().hex}.png"
     output_path = GENERATED_DIR / output_filename
@@ -329,6 +334,8 @@ def generate_contract(
         "ai_generated": ai_generated,
         "body_source": "ai" if ai_generated else "template",
         "body_source_label": "本契正文由 AI 生成" if ai_generated else "本契正文由模板生成",
+        "body_source_reason": llm_runtime_message,
+        "llm_available": llm_available,
         "image_url": f"/generated/{output_filename}",
         "download_name": output_filename,
     }

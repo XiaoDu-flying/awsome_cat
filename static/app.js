@@ -55,6 +55,7 @@ function renderContractResult(data) {
     <div class="pill-row">
       <span class="pill">${escapeHtml(data.body_source_label || (data.ai_generated ? '本契正文由 AI 生成' : '本契正文由模板生成'))}</span>
     </div>
+    <div class="metric"><strong>生成说明：</strong>${escapeHtml(data.body_source_reason || (data.ai_generated ? 'AI 文案生成成功。' : '当前未返回额外说明。'))}</div>
     <div class="metric"><strong>契书正文：</strong>${escapeHtml(data.body)}</div>
     <img class="poster-preview" src="${data.image_url}" alt="纳猫契预览" />
     <div style="text-align:center;">
