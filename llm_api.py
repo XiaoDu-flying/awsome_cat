@@ -9,6 +9,8 @@ from openai import AzureOpenAI, OpenAI
 DEFAULT_API_VERSION = "2024-02-01"
 DEFAULT_ENDPOINT = "https://aidp.bytedance.net/api/modelhub/online/v2/crawl"
 DEFAULT_MODEL = "gpt-5.5-2026-04-24"
+DEFAULT_TIMEOUT_SECONDS = 15.0
+DEFAULT_MAX_RETRIES = 1
 
 
 def get_client() -> Optional[object]:
@@ -18,6 +20,8 @@ def get_client() -> Optional[object]:
     openai_api_key = os.getenv("OPENAI_API_KEY")
     azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("OPENAI_AZURE_ENDPOINT")
     openai_base_url = os.getenv("OPENAI_BASE_URL")
+    timeout_seconds = float(os.getenv("LLM_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)))
+    max_retries = int(os.getenv("LLM_MAX_RETRIES", str(DEFAULT_MAX_RETRIES)))
 
     if azure_api_key and azure_endpoint:
         return AzureOpenAI(
@@ -25,10 +29,16 @@ def get_client() -> Optional[object]:
             api_version=os.getenv("AZURE_OPENAI_API_VERSION", DEFAULT_API_VERSION),
             azure_endpoint=azure_endpoint,
             default_headers={"X-TT-LOGID": os.getenv("X_TT_LOGID", "awesome-cat-local")},
+            timeout=timeout_seconds,
+            max_retries=max_retries,
         )
 
     if openai_api_key:
-        client_kwargs: dict[str, Any] = {"api_key": openai_api_key}
+        client_kwargs: dict[str, Any] = {
+            "api_key": openai_api_key,
+            "timeout": timeout_seconds,
+            "max_retries": max_retries,
+        }
         if openai_base_url:
             client_kwargs["base_url"] = openai_base_url
         return OpenAI(**client_kwargs)

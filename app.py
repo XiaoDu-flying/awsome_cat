@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 import uvicorn
+from fastapi.concurrency import run_in_threadpool
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -60,7 +61,12 @@ async def cat_read(
 
     save_bytes_file(image_bytes, Path(photo.filename or "cat.png").suffix or ".png", UPLOAD_DIR, "cat")
     try:
-        result = analyze_cat_image(image_bytes, photo.filename or "cat.png", nickname.strip() or None)
+        result = await run_in_threadpool(
+            analyze_cat_image,
+            image_bytes,
+            photo.filename or "cat.png",
+            nickname.strip() or None,
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"猫咪图片解析失败：{exc}") from exc
     return JSONResponse(result)
@@ -72,7 +78,7 @@ async def lucky_day(query_date: str = Form(default="")) -> JSONResponse:
         target_date = parse_date_input(query_date)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="日期格式错误，请使用 YYYY-MM-DD") from exc
-    return JSONResponse(query_lucky_day(target_date))
+    return JSONResponse(await run_in_threadpool(query_lucky_day, target_date))
 
 
 @app.post("/api/contract/generate")
@@ -95,13 +101,14 @@ async def contract_generate(
         raise HTTPException(status_code=400, detail="立契日期格式错误，请使用 YYYY-MM-DD") from exc
     save_bytes_file(image_bytes, Path(photo.filename or "contract.png").suffix or ".png", UPLOAD_DIR, "contract")
     try:
-        result = generate_contract(
-            event_text=event_text.strip(),
-            owner_name=owner_name.strip(),
-            cat_name=cat_name.strip(),
-            contract_date=parsed_date,
-            image_bytes=image_bytes,
-            source_filename=photo.filename or "contract.png",
+        result = await run_in_threadpool(
+            generate_contract,
+            event_text.strip(),
+            owner_name.strip(),
+            cat_name.strip(),
+            parsed_date,
+            image_bytes,
+            photo.filename or "contract.png",
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"纳猫契生成失败：{exc}") from exc
