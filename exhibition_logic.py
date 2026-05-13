@@ -292,9 +292,9 @@ def generate_contract(
         "当以清水、暖食、柔言相待，共守朝夕，同享安然。"
     )
     body = default_body
+    ai_generated = False
     if _llm_enrichment_enabled():
-        body = (
-            chat_text(
+        llm_body = chat_text(
                 textwrap.dedent(
                     f"""
                     请为展馆互动装置写一段 80 字以内的《纳猫契》正文，文风古雅但易懂。
@@ -307,8 +307,9 @@ def generate_contract(
                 system_prompt="你是文博展项文案师，负责撰写简洁优雅的中文契书。",
                 max_tokens=250,
             )
-            or default_body
-        )
+        if llm_body and llm_body.strip():
+            body = llm_body.strip()
+            ai_generated = True
 
     output_filename = f"contract_{uuid.uuid4().hex}.png"
     output_path = GENERATED_DIR / output_filename
@@ -325,6 +326,9 @@ def generate_contract(
     return {
         "title": base_title,
         "body": body,
+        "ai_generated": ai_generated,
+        "body_source": "ai" if ai_generated else "template",
+        "body_source_label": "本契正文由 AI 生成" if ai_generated else "本契正文由模板生成",
         "image_url": f"/generated/{output_filename}",
         "download_name": output_filename,
     }

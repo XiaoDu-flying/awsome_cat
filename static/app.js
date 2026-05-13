@@ -52,6 +52,9 @@ function renderDateResult(data) {
 function renderContractResult(data) {
   document.getElementById('contract-result').innerHTML = `
     <h3 class="result-title">${escapeHtml(data.title)}</h3>
+    <div class="pill-row">
+      <span class="pill">${escapeHtml(data.body_source_label || (data.ai_generated ? '本契正文由 AI 生成' : '本契正文由模板生成'))}</span>
+    </div>
     <div class="metric"><strong>契书正文：</strong>${escapeHtml(data.body)}</div>
     <img class="poster-preview" src="${data.image_url}" alt="纳猫契预览" />
     <div style="text-align:center;">
