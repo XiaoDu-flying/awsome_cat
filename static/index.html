@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>纳猫复原互动展项</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">第二展厅 · 可直接运行版互动项目</p>
+          <h1>纳猫复原 · AI互动体验台</h1>
+          <p class="subtitle">支持 AI 相猫、纳猫吉日查询、纳猫契生成 三个完整模块。</p>
+        </div>
+        <div class="hero-badge">AWESOME CAT</div>
+      </header>
+
+      <nav class="tabs">
+        <button class="tab active" data-target="cat-panel">AI 相猫体验</button>
+        <button class="tab" data-target="date-panel">纳猫吉日查询</button>
+        <button class="tab" data-target="contract-panel">纳猫契生成</button>
+      </nav>
+
+      <main>
+        <section id="cat-panel" class="panel active">
+          <div class="card-grid">
+            <form id="cat-form" class="panel-card form-card">
+              <h2>上传猫咪照片</h2>
+              <label>猫咪昵称（可选）</label>
+              <input type="text" name="nickname" placeholder="例如：小橘 / 团团" />
+              <label>猫咪照片</label>
+              <input type="file" name="photo" accept="image/*" required />
+              <button type="submit">开始相猫</button>
+            </form>
+
+            <div class="panel-card result-card" id="cat-result">
+              <div class="empty-state">上传猫咪照片后，这里会显示外貌特点、好猫/坏猫判定与古风点评。</div>
+            </div>
+          </div>
+        </section>
+
+        <section id="date-panel" class="panel">
+          <div class="card-grid">
+            <form id="date-form" class="panel-card form-card">
+              <h2>查询纳猫吉日</h2>
+              <label>选择日期</label>
+              <input type="date" name="query_date" required />
+              <button type="submit">查询黄历</button>
+            </form>
+
+            <div class="panel-card result-card" id="date-result">
+              <div class="empty-state">选择日期后，这里会显示“宜 / 忌”、吉日等级与黄历签语。</div>
+            </div>
+          </div>
+        </section>
+
+        <section id="contract-panel" class="panel">
+          <div class="card-grid">
+            <form id="contract-form" class="panel-card form-card">
+              <h2>生成纳猫契</h2>
+              <label>纳猫事件</label>
+              <textarea name="event_text" rows="4" placeholder="例如：春日午后，于院中初遇一只亲人的小狸猫，遂决定迎它回家。" required></textarea>
+              <label>主人署名（可选）</label>
+              <input type="text" name="owner_name" placeholder="例如：张三" />
+              <label>猫咪名字（可选）</label>
+              <input type="text" name="cat_name" placeholder="例如：阿福" />
+              <label>立契日期</label>
+              <input type="date" name="contract_date" />
+              <label>猫咪照片</label>
+              <input type="file" name="photo" accept="image/*" required />
+              <button type="submit">生成纳猫契</button>
+            </form>
+
+            <div class="panel-card result-card" id="contract-result">
+              <div class="empty-state">提交信息后，这里会显示生成的电子纳猫契图片，可直接下载保存。</div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
