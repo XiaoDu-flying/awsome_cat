@@ -5,6 +5,7 @@ import os
 import textwrap
 import uuid
 from datetime import date, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -37,11 +38,15 @@ def save_bytes_file(data: bytes, suffix: str, folder: Path, prefix: str) -> Path
     return file_path
 
 
+@lru_cache(maxsize=32)
 def _font(size: int, bold: bool = False) -> Union[ImageFont.FreeTypeFont, ImageFont.ImageFont]:
     candidates = [
         "/System/Library/Fonts/STHeiti Medium.ttc",
         "/System/Library/Fonts/PingFang.ttc",
         "/System/Library/Fonts/Supplemental/Songti.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
     ]
     if bold:
