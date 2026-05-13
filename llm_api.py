@@ -9,6 +9,8 @@ from openai import AzureOpenAI, OpenAI
 DEFAULT_API_VERSION = "2024-02-01"
 DEFAULT_ENDPOINT = "https://aidp.bytedance.net/api/modelhub/online/v2/crawl"
 DEFAULT_MODEL = "gpt-5.5-2026-04-24"
+DEFAULT_ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
+DEFAULT_ARK_MODEL = "doubao-seed-1-8-251228"
 DEFAULT_TIMEOUT_SECONDS = 15.0
 DEFAULT_MAX_RETRIES = 1
 
@@ -18,10 +20,20 @@ def get_client() -> Optional[object]:
 
     azure_api_key = os.getenv("AZURE_OPENAI_API_KEY")
     openai_api_key = os.getenv("OPENAI_API_KEY")
+    ark_api_key = os.getenv("ARK_API_KEY")
     azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("OPENAI_AZURE_ENDPOINT")
     openai_base_url = os.getenv("OPENAI_BASE_URL")
+    ark_base_url = os.getenv("ARK_BASE_URL", DEFAULT_ARK_BASE_URL)
     timeout_seconds = float(os.getenv("LLM_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)))
     max_retries = int(os.getenv("LLM_MAX_RETRIES", str(DEFAULT_MAX_RETRIES)))
+
+    if ark_api_key:
+        return OpenAI(
+            api_key=ark_api_key,
+            base_url=ark_base_url,
+            timeout=timeout_seconds,
+            max_retries=max_retries,
+        )
 
     if azure_api_key and azure_endpoint:
         return AzureOpenAI(
@@ -47,7 +59,39 @@ def get_client() -> Optional[object]:
 
 
 def get_default_model() -> str:
+    if os.getenv("ARK_API_KEY"):
+        return os.getenv("ARK_MODEL") or DEFAULT_ARK_MODEL
     return os.getenv("LLM_MODEL") or os.getenv("AZURE_OPENAI_MODEL") or os.getenv("OPENAI_MODEL") or DEFAULT_MODEL
+
+
+def _build_data_url(image_bytes: bytes, image_mime_type: str) -> str:
+    encoded = base64.b64encode(image_bytes).decode("utf-8")
+    return f"data:{image_mime_type};base64,{encoded}"
+
+
+def _extract_response_text(response: Any) -> str:
+    output_text = getattr(response, "output_text", None)
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+
+    output = getattr(response, "output", None)
+    if isinstance(output, list):
+        parts: list[str] = []
+        for item in output:
+            content = getattr(item, "content", None)
+            if isinstance(content, list):
+                for block in content:
+                    text = getattr(block, "text", None)
+                    if text:
+                        parts.append(text)
+        if parts:
+            return "\n".join(parts).strip()
+    return ""
+
+
+def _is_ark_client(client: object) -> bool:
+    base_url = getattr(client, "base_url", None)
+    return base_url is not None and DEFAULT_ARK_BASE_URL in str(base_url)
 
 
 def _extract_text_content(message: Any) -> str:
@@ -80,28 +124,42 @@ def chat_json(
     if client is None:
         return None
 
-    content: list[dict[str, Any]] = [{"type": "text", "text": user_prompt}]
-
-    if image_bytes:
-        encoded = base64.b64encode(image_bytes).decode("utf-8")
-        content.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:{image_mime_type};base64,{encoded}"},
-            }
-        )
-
     try:
-        response = client.chat.completions.create(
-            model=model or get_default_model(),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": content},
-            ],
-            max_tokens=max_tokens,
-            stream=False,
-        )
-        raw_text = _extract_text_content(response.choices[0].message).strip()
+        if _is_ark_client(client):
+            user_content: list[dict[str, Any]] = [{"type": "input_text", "text": user_prompt}]
+            if image_bytes:
+                user_content.insert(
+                    0,
+                    {"type": "input_image", "image_url": _build_data_url(image_bytes, image_mime_type)},
+                )
+
+            response = client.responses.create(
+                model=model or get_default_model(),
+                input=[
+                    {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+                    {"role": "user", "content": user_content},
+                ],
+            )
+            raw_text = _extract_response_text(response).strip()
+        else:
+            content: list[dict[str, Any]] = [{"type": "text", "text": user_prompt}]
+            if image_bytes:
+                content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": _build_data_url(image_bytes, image_mime_type)},
+                    }
+                )
+            response = client.chat.completions.create(
+                model=model or get_default_model(),
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": content},
+                ],
+                max_tokens=max_tokens,
+                stream=False,
+            )
+            raw_text = _extract_text_content(response.choices[0].message).strip()
         if raw_text.startswith("```"):
             raw_text = raw_text.strip("`")
             raw_text = raw_text.replace("json\n", "", 1).strip()
@@ -124,6 +182,16 @@ def chat_text(
         return None
 
     try:
+        if _is_ark_client(client):
+            response = client.responses.create(
+                model=model or get_default_model(),
+                input=[
+                    {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+                    {"role": "user", "content": [{"type": "input_text", "text": user_prompt}]},
+                ],
+            )
+            return _extract_response_text(response).strip() or None
+
         response = client.chat.completions.create(
             model=model or get_default_model(),
             messages=[

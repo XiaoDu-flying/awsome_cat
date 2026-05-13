@@ -21,6 +21,16 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 GENERATED_DIR.mkdir(exist_ok=True)
 
 
+def _llm_enrichment_enabled() -> bool:
+    configured = os.getenv("ENABLE_LLM_ENRICHMENT")
+    if configured is not None:
+        return configured.strip().lower() in {"1", "true", "yes", "on"}
+    return any(
+        os.getenv(name)
+        for name in ["ARK_API_KEY", "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY"]
+    )
+
+
 def save_bytes_file(data: bytes, suffix: str, folder: Path, prefix: str) -> Path:
     file_path = folder / f"{prefix}_{uuid.uuid4().hex}{suffix}"
     file_path.write_bytes(data)
@@ -122,6 +132,9 @@ def _local_cat_result(stats: dict[str, Any], nickname: Optional[str] = None) -> 
 def analyze_cat_image(image_bytes: bytes, filename: str, nickname: Optional[str] = None) -> dict[str, Any]:
     stats = _image_stats(image_bytes)
     local_result = _local_cat_result(stats, nickname)
+
+    if not _llm_enrichment_enabled():
+        return local_result
 
     prompt = textwrap.dedent(
         f"""
@@ -225,19 +238,21 @@ def query_lucky_day(target_date: date) -> dict[str, Any]:
         + ("适宜迎猫入宅、缓缓亲近。" if is_lucky else "宜先整备猫居，改日再迎更稳妥。")
     )
 
-    llm_text = chat_text(
-        textwrap.dedent(
-            f"""
-            日期：{target_date.isoformat()}
-            基础判定：{summary}
-            宜：{', '.join(yi)}
-            忌：{', '.join(ji)}
-            请写一段不超过60字的古风黄历文案。
-            """
-        ).strip(),
-        system_prompt="你是展馆中的黄历讲解员，请用简洁、古风、友好的中文写作。",
-        max_tokens=200,
-    )
+    llm_text = None
+    if _llm_enrichment_enabled():
+        llm_text = chat_text(
+            textwrap.dedent(
+                f"""
+                日期：{target_date.isoformat()}
+                基础判定：{summary}
+                宜：{', '.join(yi)}
+                忌：{', '.join(ji)}
+                请写一段不超过60字的古风黄历文案。
+                """
+            ).strip(),
+            system_prompt="你是展馆中的黄历讲解员，请用简洁、古风、友好的中文写作。",
+            max_tokens=200,
+        )
 
     return {
         "date": target_date.isoformat(),
@@ -271,19 +286,24 @@ def generate_contract(
         f"缘起“{event_text}”，自{contract_date.isoformat()}日起，"
         "当以清水、暖食、柔言相待，共守朝夕，同享安然。"
     )
-    body = chat_text(
-        textwrap.dedent(
-            f"""
-            请为展馆互动装置写一段 80 字以内的《纳猫契》正文，文风古雅但易懂。
-            纳猫事件：{event_text}
-            主人称呼：{owner_name or '纳猫人'}
-            猫咪名字：{cat_name or '灵猫'}
-            日期：{contract_date.isoformat()}
-            """
-        ).strip(),
-        system_prompt="你是文博展项文案师，负责撰写简洁优雅的中文契书。",
-        max_tokens=250,
-    ) or default_body
+    body = default_body
+    if _llm_enrichment_enabled():
+        body = (
+            chat_text(
+                textwrap.dedent(
+                    f"""
+                    请为展馆互动装置写一段 80 字以内的《纳猫契》正文，文风古雅但易懂。
+                    纳猫事件：{event_text}
+                    主人称呼：{owner_name or '纳猫人'}
+                    猫咪名字：{cat_name or '灵猫'}
+                    日期：{contract_date.isoformat()}
+                    """
+                ).strip(),
+                system_prompt="你是文博展项文案师，负责撰写简洁优雅的中文契书。",
+                max_tokens=250,
+            )
+            or default_body
+        )
 
     output_filename = f"contract_{uuid.uuid4().hex}.png"
     output_path = GENERATED_DIR / output_filename
