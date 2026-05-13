@@ -1,8 +1,10 @@
 import asyncio
+import io
 import os
 from pathlib import Path
 
 import uvicorn
+from PIL import Image, ImageOps
 from fastapi.concurrency import run_in_threadpool
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
@@ -11,12 +13,10 @@ from fastapi.staticfiles import StaticFiles
 from exhibition_logic import (
     BASE_DIR,
     GENERATED_DIR,
-    UPLOAD_DIR,
     analyze_cat_image,
     generate_contract,
     parse_date_input,
     query_lucky_day,
-    save_bytes_file,
 )
 
 
@@ -27,9 +27,46 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/generated", StaticFiles(directory=str(GENERATED_DIR)), name="generated")
 
 MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE_MB", "8")) * 1024 * 1024
+AUTO_COMPRESS_THRESHOLD = 1 * 1024 * 1024
+AUTO_COMPRESS_MAX_DIMENSION = 1600
 
 
-async def read_image_upload(photo: UploadFile) -> bytes:
+def _compress_image_if_needed(image_bytes: bytes, filename: str) -> tuple[bytes, str]:
+    if len(image_bytes) <= AUTO_COMPRESS_THRESHOLD:
+        return image_bytes, filename
+
+    image = Image.open(io.BytesIO(image_bytes))
+    image = ImageOps.exif_transpose(image)
+
+    if image.mode in {"RGBA", "LA"}:
+        background = Image.new("RGB", image.size, "white")
+        alpha = image.getchannel("A") if "A" in image.getbands() else None
+        background.paste(image.convert("RGBA"), mask=alpha)
+        image = background
+    else:
+        image = image.convert("RGB")
+
+    max_side = max(image.size)
+    if max_side > AUTO_COMPRESS_MAX_DIMENSION:
+        scale = AUTO_COMPRESS_MAX_DIMENSION / max_side
+        resized_size = (max(1, int(image.width * scale)), max(1, int(image.height * scale)))
+        image = image.resize(resized_size, Image.Resampling.LANCZOS)
+
+    quality_candidates = [88, 82, 76, 70, 64, 58, 52, 46, 40]
+    best_bytes = image_bytes
+    for quality in quality_candidates:
+        output = io.BytesIO()
+        image.save(output, format="JPEG", quality=quality, optimize=True)
+        candidate = output.getvalue()
+        if len(candidate) < len(best_bytes):
+            best_bytes = candidate
+        if len(candidate) <= AUTO_COMPRESS_THRESHOLD:
+            return candidate, f"{Path(filename).stem}.jpg"
+
+    return best_bytes, f"{Path(filename).stem}.jpg"
+
+
+async def read_image_upload(photo: UploadFile) -> tuple[bytes, str]:
     if not photo.filename:
         raise HTTPException(status_code=400, detail="请上传图片文件")
     if not (photo.content_type or "").startswith("image/"):
@@ -40,7 +77,8 @@ async def read_image_upload(photo: UploadFile) -> bytes:
         raise HTTPException(status_code=400, detail="请上传猫咪照片")
     if len(image_bytes) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail=f"图片不能超过 {MAX_UPLOAD_SIZE // 1024 // 1024}MB")
-    return image_bytes
+    compressed_bytes, normalized_filename = _compress_image_if_needed(image_bytes, photo.filename)
+    return compressed_bytes, normalized_filename
 
 
 @app.get("/")
@@ -58,14 +96,13 @@ async def cat_read(
     photo: UploadFile = File(...),
     nickname: str = Form(default=""),
 ) -> JSONResponse:
-    image_bytes = await read_image_upload(photo)
+    image_bytes, normalized_filename = await read_image_upload(photo)
 
-    save_bytes_file(image_bytes, Path(photo.filename or "cat.png").suffix or ".png", UPLOAD_DIR, "cat")
     try:
         result = await run_in_threadpool(
             analyze_cat_image,
             image_bytes,
-            photo.filename or "cat.png",
+            normalized_filename,
             nickname.strip() or None,
         )
     except Exception as exc:
@@ -102,7 +139,7 @@ async def contract_generate(
     cat_name: str = Form(default=""),
     contract_date: str = Form(default=""),
 ) -> JSONResponse:
-    image_bytes = await read_image_upload(photo)
+    image_bytes, normalized_filename = await read_image_upload(photo)
     if not event_text.strip():
         raise HTTPException(status_code=400, detail="请填写纳猫事件")
     if len(event_text.strip()) > 200:
@@ -112,7 +149,6 @@ async def contract_generate(
         parsed_date = parse_date_input(contract_date)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="立契日期格式错误，请使用 YYYY-MM-DD") from exc
-    save_bytes_file(image_bytes, Path(photo.filename or "contract.png").suffix or ".png", UPLOAD_DIR, "contract")
     try:
         result = await run_in_threadpool(
             generate_contract,
@@ -121,7 +157,7 @@ async def contract_generate(
             cat_name.strip(),
             parsed_date,
             image_bytes,
-            photo.filename or "contract.png",
+            normalized_filename,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"纳猫契生成失败：{exc}") from exc
