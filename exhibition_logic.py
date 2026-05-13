@@ -32,6 +32,10 @@ def _llm_enrichment_enabled() -> bool:
     )
 
 
+def _lucky_day_model() -> Optional[str]:
+    return os.getenv("LUCKY_DAY_LLM_MODEL") or None
+
+
 def save_bytes_file(data: bytes, suffix: str, folder: Path, prefix: str) -> Path:
     file_path = folder / f"{prefix}_{uuid.uuid4().hex}{suffix}"
     file_path.write_bytes(data)
@@ -209,17 +213,39 @@ def _normalize_score(value: Any, fallback: int) -> int:
 
 
 def _pick_unique_items(pool: list[str], seed: int, step: int, count: int) -> list[str]:
+    if not pool or count <= 0:
+        return []
+
+    target_count = min(count, len(pool))
+    start_index = seed % len(pool)
     results: list[str] = []
-    index = seed % len(pool)
-    while len(results) < count:
-        item = pool[index % len(pool)]
-        if item not in results:
-            results.append(item)
+    visited_indices: set[int] = set()
+    index = start_index
+
+    # 先按给定步长走一轮；如果步长与池长度不互质，也不会无限循环。
+    while len(visited_indices) < len(pool) and len(results) < target_count:
+        current_index = index % len(pool)
+        if current_index in visited_indices:
+            break
+        visited_indices.add(current_index)
+        results.append(pool[current_index])
         index += step
+
+    # 如果上面的步长轨迹覆盖不全，再按线性顺序补足剩余项，保证稳定且可终止。
+    if len(results) < target_count:
+        for offset in range(len(pool)):
+            current_index = (start_index + offset) % len(pool)
+            item = pool[current_index]
+            if item not in results:
+                results.append(item)
+            if len(results) >= target_count:
+                break
+
     return results
 
 
 def query_lucky_day(target_date: date) -> dict[str, Any]:
+    llm_available, llm_status_message = get_llm_status()
     seed = target_date.toordinal()
     score = (seed * 37 + target_date.day * 9 + target_date.month * 13) % 100
     is_lucky = score >= 45
@@ -243,21 +269,27 @@ def query_lucky_day(target_date: date) -> dict[str, Any]:
         + ("适宜迎猫入宅、缓缓亲近。" if is_lucky else "宜先整备猫居，改日再迎更稳妥。")
     )
 
-    llm_text = None
-    if _llm_enrichment_enabled():
-        llm_text = chat_text(
-            textwrap.dedent(
-                f"""
-                日期：{target_date.isoformat()}
-                基础判定：{summary}
-                宜：{', '.join(yi)}
-                忌：{', '.join(ji)}
-                请写一段不超过60字的古风黄历文案。
-                """
-            ).strip(),
-            system_prompt="你是展馆中的黄历讲解员，请用简洁、古风、友好的中文写作。",
-            max_tokens=200,
-        )
+    if not _llm_enrichment_enabled():
+        raise RuntimeError(f"黄历查询要求使用大模型生成，但当前未启用 LLM。{llm_status_message}")
+
+    llm_text = chat_text(
+        textwrap.dedent(
+            f"""
+            日期：{target_date.isoformat()}
+            基础判定：{summary}
+            宜：{', '.join(yi)}
+            忌：{', '.join(ji)}
+            请写一段不超过60字的古风黄历文案。
+            """
+        ).strip(),
+        system_prompt="你是展馆中的黄历讲解员，请用简洁、古风、友好的中文写作。",
+        model=_lucky_day_model(),
+        max_tokens=20000,
+        timeout_seconds=45,
+        max_retries=3,
+    )
+    if not llm_text or not llm_text.strip():
+        raise RuntimeError(get_last_llm_diagnostic() or "黄历签语生成失败，未返回有效内容。")
 
     return {
         "date": target_date.isoformat(),
@@ -267,7 +299,10 @@ def query_lucky_day(target_date: date) -> dict[str, Any]:
         "yi": yi,
         "ji": ji,
         "summary": summary,
-        "oracle": llm_text or _fallback_oracle(target_date, level, is_lucky),
+        "oracle": llm_text.strip(),
+        "oracle_source": "ai",
+        "oracle_source_reason": f"黄历签语由 AI 生成。模型：{_lucky_day_model() or '默认模型'}",
+        "llm_available": llm_available,
     }
 
 
@@ -307,7 +342,7 @@ def generate_contract(
                     """
                 ).strip(),
                 system_prompt="你是文博展项文案师，负责撰写简洁优雅的中文契书。",
-                max_tokens=250,
+                max_tokens=25000,
             )
         if llm_body and llm_body.strip():
             body = llm_body.strip()

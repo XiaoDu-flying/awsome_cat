@@ -14,6 +14,16 @@ function setLoading(id, text) {
   document.getElementById(id).innerHTML = `<div class="loading-state">${text}</div>`;
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function renderCatResult(data) {
   document.getElementById('cat-result').innerHTML = `
     <h3 class="result-title">${escapeHtml(data.title)}</h3>
@@ -55,7 +65,6 @@ function renderContractResult(data) {
     <div class="pill-row">
       <span class="pill">${escapeHtml(data.body_source_label || (data.ai_generated ? '本契正文由 AI 生成' : '本契正文由模板生成'))}</span>
     </div>
-    <div class="metric"><strong>生成说明：</strong>${escapeHtml(data.body_source_reason || (data.ai_generated ? 'AI 文案生成成功。' : '当前未返回额外说明。'))}</div>
     <div class="metric"><strong>契书正文：</strong>${escapeHtml(data.body)}</div>
     <img class="poster-preview" src="${data.image_url}" alt="纳猫契预览" />
     <div style="text-align:center;">
@@ -83,12 +92,15 @@ document.getElementById('date-form').addEventListener('submit', async (event) =>
   const formData = new FormData(event.currentTarget);
   setLoading('date-result', '正在查阅电子黄历，请稍候…');
   try {
-    const response = await fetch('/api/date/lucky', { method: 'POST', body: formData });
+    const response = await fetchWithTimeout('/api/date/lucky', { method: 'POST', body: formData }, 60000);
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || '查询失败');
     renderDateResult(data);
   } catch (error) {
-    document.getElementById('date-result').innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    const message = error.name === 'AbortError'
+      ? '前端在 60 秒内未收到 /api/date/lucky 的响应：模型生成时间过长、网络较慢，或后端服务异常。'
+      : error.message;
+    document.getElementById('date-result').innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
   }
 });
 

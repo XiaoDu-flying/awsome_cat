@@ -1,3 +1,4 @@
+import asyncio
 import os
 from pathlib import Path
 
@@ -78,7 +79,19 @@ async def lucky_day(query_date: str = Form(default="")) -> JSONResponse:
         target_date = parse_date_input(query_date)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="日期格式错误，请使用 YYYY-MM-DD") from exc
-    return JSONResponse(await run_in_threadpool(query_lucky_day, target_date))
+    try:
+        result = await asyncio.wait_for(
+            run_in_threadpool(query_lucky_day, target_date),
+            timeout=50.0,
+        )
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="黄历查询调用大模型超时：后端在 50 秒内未得到模型结果，请检查模型响应速度、网络状态，或切换更快模型。",
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    return JSONResponse(result)
 
 
 @app.post("/api/contract/generate")

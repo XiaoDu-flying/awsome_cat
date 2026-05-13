@@ -25,16 +25,28 @@ def get_last_llm_diagnostic() -> str:
     return getattr(_THREAD_STATE, "last_llm_diagnostic", "")
 
 
-def _get_runtime_options() -> tuple[float, int, str, str]:
-    timeout_seconds = float(os.getenv("LLM_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)))
-    max_retries = int(os.getenv("LLM_MAX_RETRIES", str(DEFAULT_MAX_RETRIES)))
+def _get_runtime_options(
+    timeout_seconds_override: Optional[float] = None,
+    max_retries_override: Optional[int] = None,
+    model_override: Optional[str] = None,
+) -> tuple[float, int, str, str]:
+    timeout_seconds = timeout_seconds_override if timeout_seconds_override is not None else float(os.getenv("LLM_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)))
+    max_retries = max_retries_override if max_retries_override is not None else int(os.getenv("LLM_MAX_RETRIES", str(DEFAULT_MAX_RETRIES)))
     ark_base_url = os.getenv("ARK_BASE_URL", DEFAULT_ARK_BASE_URL)
-    model = get_default_model()
+    model = model_override or get_default_model()
     return timeout_seconds, max_retries, ark_base_url, model
 
 
-def _runtime_summary() -> str:
-    timeout_seconds, max_retries, ark_base_url, model = _get_runtime_options()
+def _runtime_summary(
+    timeout_seconds_override: Optional[float] = None,
+    max_retries_override: Optional[int] = None,
+    model_override: Optional[str] = None,
+) -> str:
+    timeout_seconds, max_retries, ark_base_url, model = _get_runtime_options(
+        timeout_seconds_override,
+        max_retries_override,
+        model_override,
+    )
     return (
         f"model={model}, timeout={timeout_seconds}s, max_retries={max_retries}, "
         f"ark_base_url={ark_base_url}"
@@ -53,7 +65,12 @@ def get_llm_status() -> tuple[bool, str]:
     return False, "未检测到 ARK_API_KEY / OPENAI_API_KEY / AZURE_OPENAI_API_KEY，已回退为模板生成。"
 
 
-def get_client() -> Optional[object]:
+def get_client(
+    *,
+    timeout_seconds_override: Optional[float] = None,
+    max_retries_override: Optional[int] = None,
+    model_override: Optional[str] = None,
+) -> Optional[object]:
     """按环境变量创建 OpenAI/AzureOpenAI 客户端。"""
 
     azure_api_key = os.getenv("AZURE_OPENAI_API_KEY")
@@ -61,7 +78,11 @@ def get_client() -> Optional[object]:
     ark_api_key = os.getenv("ARK_API_KEY")
     azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("OPENAI_AZURE_ENDPOINT")
     openai_base_url = os.getenv("OPENAI_BASE_URL")
-    timeout_seconds, max_retries, ark_base_url, _ = _get_runtime_options()
+    timeout_seconds, max_retries, ark_base_url, _ = _get_runtime_options(
+        timeout_seconds_override,
+        max_retries_override,
+        model_override,
+    )
 
     if ark_api_key:
         return OpenAI(
@@ -153,12 +174,21 @@ def chat_json(
     image_mime_type: str = "image/png",
     model: Optional[str] = None,
     max_tokens: int = 4000,
+    timeout_seconds: Optional[float] = None,
+    max_retries: Optional[int] = None,
 ) -> Optional[dict[str, Any]]:
     """调用多模态模型并尽量解析为 JSON，失败时返回 None。"""
 
-    client = get_client()
+    client = get_client(
+        timeout_seconds_override=timeout_seconds,
+        max_retries_override=max_retries,
+        model_override=model,
+    )
     if client is None:
-        _set_last_llm_diagnostic(f"未创建 LLM 客户端，请检查 API Key 与端点配置。({_runtime_summary()})")
+        _set_last_llm_diagnostic(
+            f"未创建 LLM 客户端，请检查 API Key 与端点配置。"
+            f"({_runtime_summary(timeout_seconds, max_retries, model)})"
+        )
         return None
 
     try:
@@ -174,6 +204,7 @@ def chat_json(
             response = client.responses.create(
                 model=model or get_default_model(),
                 input=[{"role": "user", "content": user_content}],
+                max_output_tokens=max_tokens,
             )
             raw_text = _extract_response_text(response).strip()
         else:
@@ -196,7 +227,9 @@ def chat_json(
             )
             raw_text = _extract_text_content(response.choices[0].message).strip()
         if not raw_text:
-            _set_last_llm_diagnostic(f"LLM 已响应，但返回内容为空。({_runtime_summary()})")
+            _set_last_llm_diagnostic(
+                f"LLM 已响应，但返回内容为空。({_runtime_summary(timeout_seconds, max_retries, model)})"
+            )
             return None
         if raw_text.startswith("```"):
             raw_text = raw_text.strip("`")
@@ -205,7 +238,10 @@ def chat_json(
         _set_last_llm_diagnostic("LLM 调用成功。")
         return result
     except Exception as exc:
-        _set_last_llm_diagnostic(f"LLM 调用失败：{type(exc).__name__}: {exc} ({_runtime_summary()})")
+        _set_last_llm_diagnostic(
+            f"LLM 调用失败：{type(exc).__name__}: {exc} "
+            f"({_runtime_summary(timeout_seconds, max_retries, model)})"
+        )
         return None
 
 
@@ -215,12 +251,21 @@ def chat_text(
     system_prompt: str,
     model: Optional[str] = None,
     max_tokens: int = 1200,
+    timeout_seconds: Optional[float] = None,
+    max_retries: Optional[int] = None,
 ) -> Optional[str]:
     """调用文本模型，失败时返回 None。"""
 
-    client = get_client()
+    client = get_client(
+        timeout_seconds_override=timeout_seconds,
+        max_retries_override=max_retries,
+        model_override=model,
+    )
     if client is None:
-        _set_last_llm_diagnostic(f"未创建 LLM 客户端，请检查 API Key 与端点配置。({_runtime_summary()})")
+        _set_last_llm_diagnostic(
+            f"未创建 LLM 客户端，请检查 API Key 与端点配置。"
+            f"({_runtime_summary(timeout_seconds, max_retries, model)})"
+        )
         return None
 
     try:
@@ -235,10 +280,13 @@ def chat_text(
                         ],
                     }
                 ],
+                max_output_tokens=max_tokens,
             )
             text = _extract_response_text(response).strip()
             if not text:
-                _set_last_llm_diagnostic(f"ARK 响应成功，但返回文本为空。({_runtime_summary()})")
+                _set_last_llm_diagnostic(
+                    f"ARK 响应成功，但返回文本为空。({_runtime_summary(timeout_seconds, max_retries, model)})"
+                )
                 return None
             _set_last_llm_diagnostic("LLM 调用成功。")
             return text
@@ -254,12 +302,17 @@ def chat_text(
         )
         text = _extract_text_content(response.choices[0].message).strip()
         if not text:
-            _set_last_llm_diagnostic(f"LLM 响应成功，但返回文本为空。({_runtime_summary()})")
+            _set_last_llm_diagnostic(
+                f"LLM 响应成功，但返回文本为空。({_runtime_summary(timeout_seconds, max_retries, model)})"
+            )
             return None
         _set_last_llm_diagnostic("LLM 调用成功。")
         return text
     except Exception as exc:
-        _set_last_llm_diagnostic(f"LLM 调用失败：{type(exc).__name__}: {exc} ({_runtime_summary()})")
+        _set_last_llm_diagnostic(
+            f"LLM 调用失败：{type(exc).__name__}: {exc} "
+            f"({_runtime_summary(timeout_seconds, max_retries, model)})"
+        )
         return None
 
 

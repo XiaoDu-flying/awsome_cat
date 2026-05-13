@@ -6,7 +6,8 @@ from pathlib import Path
 from openai import OpenAI
 
 
-DEFAULT_IMAGE_PATH = "/Users/bytedance/Library/Caches/coco/sessions/eac6f23e-019c-4b95-bf29-0a6f3f85747d/file-cache/file_1778662710.jpg"
+# DEFAULT_IMAGE_PATH = "/Users/bytedance/Library/Caches/coco/sessions/eac6f23e-019c-4b95-bf29-0a6f3f85747d/file-cache/file_1778662710.jpg"
+DEFAULT_IMAGE_PATH = "/Users/bytedance/Documents/lxh作业/awesome_cat/uploads/a8057e67301377e7ad201c338ed31412.jpg"
 PROMPT = "你看见了什么？"
 
 
@@ -38,7 +39,7 @@ def main() -> None:
     )
 
     response = client.responses.create(
-        model="doubao-seed-1-8-251228",
+        model="doubao-seed-1-6-flash-250828",
         input=[
             {
                 "role": "user",
