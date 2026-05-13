@@ -126,7 +126,8 @@ def chat_json(
 
     try:
         if _is_ark_client(client):
-            user_content: list[dict[str, Any]] = [{"type": "input_text", "text": user_prompt}]
+            # 与 doubao_api.py 保持一致：input 仅包含 user 消息，避免系统消息结构差异导致挂起
+            user_content: list[dict[str, Any]] = [{"type": "input_text", "text": f"{system_prompt}\n\n{user_prompt}"}]
             if image_bytes:
                 user_content.insert(
                     0,
@@ -135,10 +136,7 @@ def chat_json(
 
             response = client.responses.create(
                 model=model or get_default_model(),
-                input=[
-                    {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-                    {"role": "user", "content": user_content},
-                ],
+                input=[{"role": "user", "content": user_content}],
             )
             raw_text = _extract_response_text(response).strip()
         else:
@@ -186,8 +184,12 @@ def chat_text(
             response = client.responses.create(
                 model=model or get_default_model(),
                 input=[
-                    {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-                    {"role": "user", "content": [{"type": "input_text", "text": user_prompt}]},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": f"{system_prompt}\n\n{user_prompt}"}
+                        ],
+                    }
                 ],
             )
             return _extract_response_text(response).strip() or None
